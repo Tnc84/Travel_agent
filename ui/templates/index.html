@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Travel Agent</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f7fa;
+        }
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+        }
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .input-container {
+            display: flex;
+            margin-bottom: 30px;
+        }
+        #user-input {
+            flex: 1;
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px 0 0 4px;
+            font-size: 16px;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 0 4px 4px 0;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        #examples {
+            margin-bottom: 30px;
+        }
+        .example {
+            display: inline-block;
+            background-color: #ecf0f1;
+            padding: 10px 15px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .example:hover {
+            background-color: #dde4e6;
+        }
+        #response-container {
+            display: none;
+            background-color: #f9f9f9;
+            border-left: 4px solid #3498db;
+            padding: 20px;
+            margin-top: 20px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+        }
+        .loading {
+            text-align: center;
+            display: none;
+            margin-top: 20px;
+        }
+        .loading:after {
+            content: '.';
+            animation: dots 1.5s steps(5, end) infinite;
+        }
+        @keyframes dots {
+            0%, 20% {
+                color: rgba(0,0,0,0);
+                text-shadow: .25em 0 0 rgba(0,0,0,0), .5em 0 0 rgba(0,0,0,0);
+            }
+            40% {
+                color: #333;
+                text-shadow: .25em 0 0 rgba(0,0,0,0), .5em 0 0 rgba(0,0,0,0);
+            }
+            60% {
+                text-shadow: .25em 0 0 #333, .5em 0 0 rgba(0,0,0,0);
+            }
+            80%, 100% {
+                text-shadow: .25em 0 0 #333, .5em 0 0 #333;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Travel Agent</h1>
+        
+        <div id="examples">
+            <p><strong>Examples:</strong></p>
+            <div class="example" onclick="fillExample('I want to go to London on June 15')">London on June 15</div>
+            <div class="example" onclick="fillExample('I want to go to Paris on July 20')">Paris on July 20</div>
+            <div class="example" onclick="fillExample('I want to go to Tokyo on September 5')">Tokyo on September 5</div>
+            <div class="example" onclick="fillExample('I want to go to New York on December 24')">New York on December 24</div>
+        </div>
+        
+        <div class="input-container">
+            <input type="text" id="user-input" placeholder="I want to go to [city] on [date]...">
+            <button onclick="askAgent()">Ask</button>
+        </div>
+        
+        <div class="loading" id="loading">Generating your travel guide</div>
+        
+        <div id="response-container"></div>
+    </div>
+    
+    <script>
+        function fillExample(text) {
+            document.getElementById('user-input').value = text;
+        }
+        
+        function askAgent() {
+            const userInput = document.getElementById('user-input').value.trim();
+            
+            if (!userInput) {
+                alert('Please enter a query');
+                return;
+            }
+            
+            // Show loading indicator
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('response-container').style.display = 'none';
+            
+            // Send request to server
+            fetch('/ask', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({
+                    'user_input': userInput
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Hide loading indicator
+                document.getElementById('loading').style.display = 'none';
+                
+                // Display response
+                const responseContainer = document.getElementById('response-container');
+                responseContainer.style.display = 'block';
+                responseContainer.innerHTML = data.response.replace(/\n/g, '<br>');
+                
+                // Scroll to response
+                responseContainer.scrollIntoView({ behavior: 'smooth' });
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('loading').style.display = 'none';
+                alert('An error occurred. Please try again.');
+            });
+        }
+        
+        // Allow pressing Enter to submit
+        document.getElementById('user-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                askAgent();
+            }
+        });
+    </script>
+</body>
+</html> 
