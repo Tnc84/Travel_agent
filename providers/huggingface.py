@@ -31,6 +31,14 @@ class HuggingFaceProvider(LLMProvider):
     def _post_with_retry(self, url: str, **kwargs) -> requests.Response:
         return requests.post(url, **kwargs)
 
+    @staticmethod
+    def _extract_assistant_reply(text: str) -> str:
+        """Return only the last assistant turn from a full prompt+response string."""
+        marker = "Assistant: "
+        if marker in text:
+            return text.split(marker)[-1].strip()
+        return text.strip()
+
     def generate_response(self, messages: List[Dict[str, str]], system_prompt: str) -> str:
         try:
             prompt = ""
@@ -64,17 +72,19 @@ class HuggingFaceProvider(LLMProvider):
             if response.status_code == 200:
                 response_json = response.json()
 
+                raw = None
                 if isinstance(response_json, list) and response_json:
-                    if "generated_text" in response_json[0]:
-                        return response_json[0]["generated_text"]
-                    if isinstance(response_json[0], str):
-                        return response_json[0]
-                elif isinstance(response_json, dict) and "generated_text" in response_json:
-                    return response_json["generated_text"]
+                    item = response_json[0]
+                    raw = item.get("generated_text") if isinstance(item, dict) else item
+                elif isinstance(response_json, dict):
+                    raw = response_json.get("generated_text")
                 elif isinstance(response_json, str):
-                    return response_json
+                    raw = response_json
 
-                return str(response_json)
+                if raw is None:
+                    return str(response_json)
+
+                return self._extract_assistant_reply(str(raw))
 
             error_message = f"Sorry, I couldn't process your request. API error: {response.status_code}"
             try:

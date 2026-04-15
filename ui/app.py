@@ -130,11 +130,10 @@ def create_app():
 
 
 def _clean_response(response_text: str) -> str:
-    """Remove leaked system prompt text from the response."""
-    if "System: You are Assistant, a helpful AI assistant." in response_text:
-        response_text = response_text.split("System: You are Assistant, a helpful AI assistant.", 1)[1].strip()
-    if "You are a helpful general assistant and travel coordinator." in response_text:
-        parts = response_text.split("User:", 1)
-        if len(parts) > 1:
-            response_text = parts[1].strip()
-    return response_text
+    """Strip any residual prompt leakage from model response."""
+    for marker in ("System:", "User:", "Assistant:"):
+        if response_text.startswith(marker):
+            parts = response_text.split("Assistant:", 1)
+            if len(parts) > 1:
+                return parts[-1].strip()
+    return response_text.strip()
