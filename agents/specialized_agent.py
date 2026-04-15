@@ -27,11 +27,16 @@ class SpecializedAgent(Agent):
             return f"{self.system_prompt}\n\n{self.specialization}"
         return self.system_prompt
 
+    def add_to_history(self, message: Message) -> None:
+        self._message_history.append(message)
+        if len(self._message_history) > self.history_limit:
+            self._message_history = self._message_history[-self.history_limit:]
+
     def process_message(self, message: Message) -> Message:
         self.add_to_history(message)
 
         messages: List[Dict[str, str]] = []
-        for msg in self._message_history[-self.history_limit:]:
+        for msg in self._message_history:
             role = "assistant" if msg.sender == self.name else "user"
             messages.append({"role": role, "content": msg.content})
 
