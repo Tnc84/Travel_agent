@@ -8,6 +8,8 @@ A flexible and extensible multi-agent chatbot system built with Python.
 - Easy to extend with new agents
 - SOLID principles implementation
 - Centralized provider/model selection in `core/provider_factory.py` with fallback support
+- Centralized agent registration/routing with `core/agent_registry.py` and `core/intent_router.py`
+- Prompt management moved to `agents/prompts/`
 
 ## Setup
 
@@ -62,8 +64,23 @@ Then open `http://127.0.0.1:5000`.
 - `main.py`: CLI entry point
 - `run.py`: web app launcher
 - `ui/`: web interface
-- `agents/`: specialized agents and LLM providers
-- `core/`: coordinator and base abstractions
+- `agents/`: specialized agents only
+- `providers/`: LLM provider abstractions and implementations
+- `core/`: coordinator, provider factory, registry, builder, and routing logic
+
+## Architecture Notes
+- `providers/base.py`: abstract provider contract (`LLMProvider`)
+- `providers/ollama.py`, `providers/huggingface.py`: concrete provider implementations
+- `core/provider_factory.py`: selects provider and model from environment with fallback
+- `core/agent_registry.py`: single source of truth for available agents and routing keywords
+- `core/agent_builder.py`: creates, initializes, and registers all agents
+- `core/intent_router.py`: shared intent detection and keyword routing
+- `agents/prompts/`: reusable system prompts for each agent
+
+## Extending The System
+- Add a new agent: create the agent class, add its prompt, then register it in `core/agent_registry.py`
+- Add a new provider: implement it in `providers/` and wire it into `core/provider_factory.py`
+- No changes are required in `main.py` or `ui/app.py` when adding a new registered agent
 
 ## Supported LLM Providers
 - **Ollama**: local server (default `http://localhost:11434`)

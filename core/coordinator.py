@@ -1,43 +1,40 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
+
 from core.base import Agent, Message
+
+_DEFAULT_HISTORY_LIMIT = 200
+
 
 class Coordinator:
     """Manages communication between multiple agents."""
-    
-    def __init__(self):
+
+    def __init__(self, history_limit: int = _DEFAULT_HISTORY_LIMIT):
         self.agents: Dict[str, Agent] = {}
-        self.history: List[Message] = []
-    
+        self._history: List[Message] = []
+        self.history_limit = history_limit
+
     def add_agent(self, agent: Agent) -> None:
-        """Add an agent to the coordinator."""
         self.agents[agent.name] = agent
-    
+
     def remove_agent(self, agent_name: str) -> None:
-        """Remove an agent from the coordinator."""
-        if agent_name in self.agents:
-            del self.agents[agent_name]
-    
-    def get_agent(self, agent_name: str) -> Agent:
-        """Get an agent by name."""
+        self.agents.pop(agent_name, None)
+
+    def get_agent(self, agent_name: str) -> Optional[Agent]:
         return self.agents.get(agent_name)
-    
+
     def process_message(self, message: Message, target_agent: str) -> Message:
-        """Process a message using the specified agent."""
         if target_agent not in self.agents:
-            raise ValueError(f"Agent '{target_agent}' not found")
-        
-        # Add message to history
-        self.history.append(message)
-        
-        # Process message with target agent
-        agent = self.agents[target_agent]
-        response = agent.process_message(message)
-        
-        # Add response to history
-        self.history.append(response)
-        
+            raise ValueError(f"Agent '{target_agent}' not found. Available: {list(self.agents.keys())}")
+
+        self._append_history(message)
+        response = self.agents[target_agent].process_message(message)
+        self._append_history(response)
         return response
-    
+
     def get_history(self) -> List[Message]:
-        """Get the full message history."""
-        return self.history 
+        return list(self._history)
+
+    def _append_history(self, message: Message) -> None:
+        self._history.append(message)
+        if len(self._history) > self.history_limit:
+            self._history = self._history[-self.history_limit:]

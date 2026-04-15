@@ -1,9 +1,9 @@
 import os
 from typing import Callable, Optional, Tuple
 
-from agents.huggingface_provider import HuggingFaceProvider
-from agents.ollama_provider import OllamaProvider
-from agents.llm_provider import LLMProvider
+from providers.huggingface import HuggingFaceProvider
+from providers.ollama import OllamaProvider
+from providers.base import LLMProvider
 
 
 def build_primary_provider(

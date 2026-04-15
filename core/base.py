@@ -1,33 +1,47 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
 
+
+@dataclass(frozen=True)
 class Message:
-    def __init__(self, content: str, sender: str, metadata: Dict[str, Any] = None):
-        self.content = content
-        self.sender = sender
-        self.metadata = metadata or {}
+    """Immutable value object representing a single message in a conversation."""
+
+    content: str
+    sender: str
+    metadata: Dict[str, Any] = field(default_factory=dict, compare=False, hash=False)
+
+    def __post_init__(self) -> None:
+        if not self.content:
+            raise ValueError("Message content cannot be empty.")
+        if not self.sender:
+            raise ValueError("Message sender cannot be empty.")
+
 
 class Agent(ABC):
     """Base abstract class for all agents in the system."""
-    
+
     def __init__(self, name: str):
         self.name = name
-        self.message_history: List[Message] = []
-    
+        self._message_history: List[Message] = []
+
     @abstractmethod
     def process_message(self, message: Message) -> Message:
         """Process an incoming message and return a response."""
-        pass
-    
+
     @abstractmethod
     def initialize(self) -> None:
         """Initialize the agent with any necessary setup."""
-        pass
-    
+
+    @property
+    def message_history(self) -> List[Message]:
+        """Read-only view of the message history."""
+        return list(self._message_history)
+
     def add_to_history(self, message: Message) -> None:
-        """Add a message to the agent's history."""
-        self.message_history.append(message)
-    
+        self._message_history.append(message)
+
     def get_history(self) -> List[Message]:
-        """Get the agent's message history."""
-        return self.message_history 
+        return list(self._message_history)

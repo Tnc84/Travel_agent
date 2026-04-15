@@ -1,12 +1,16 @@
+import logging
 import os
 from typing import Dict, List
 
 import requests
 from dotenv import load_dotenv
 
-from agents.llm_provider import LLMProvider
+from providers.base import LLMProvider
+from core.utils import retry_on_error
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 class OllamaProvider(LLMProvider):
@@ -17,8 +21,8 @@ class OllamaProvider(LLMProvider):
         self.base_url = (base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")).rstrip("/")
         self._initialized = False
 
+    @retry_on_error(max_retries=3, delay=1.0, exceptions=(requests.ConnectionError, requests.Timeout))
     def initialize(self) -> None:
-        """Initialize and validate Ollama connectivity."""
         if self._initialized:
             return
 
@@ -29,14 +33,17 @@ class OllamaProvider(LLMProvider):
                 f"Status code: {response.status_code}"
             )
         self._initialized = True
+        logger.info("Ollama provider initialized at %s using model %s", self.base_url, self.model)
+
+    @retry_on_error(max_retries=3, delay=1.0, exceptions=(requests.ConnectionError, requests.Timeout))
+    def _post_with_retry(self, url: str, **kwargs) -> requests.Response:
+        return requests.post(url, **kwargs)
 
     def generate_response(self, messages: List[Dict[str, str]], system_prompt: str) -> str:
-        """Generate a response using Ollama chat API."""
         try:
             chat_messages = []
             if system_prompt:
                 chat_messages.append({"role": "system", "content": system_prompt})
-
             chat_messages.extend(messages)
 
             payload = {
@@ -45,7 +52,7 @@ class OllamaProvider(LLMProvider):
                 "stream": False,
             }
 
-            response = requests.post(
+            response = self._post_with_retry(
                 f"{self.base_url}/api/chat",
                 json=payload,
                 timeout=120,
@@ -59,20 +66,14 @@ class OllamaProvider(LLMProvider):
                 except Exception:
                     error_detail = response.text.strip()
 
-                if error_detail:
-                    return (
-                        "Sorry, I couldn't process your request. "
-                        f"Ollama API error: {response.status_code} ({error_detail})"
-                    )
-                return f"Sorry, I couldn't process your request. Ollama API error: {response.status_code}"
+                logger.warning("Ollama API error %s: %s", response.status_code, error_detail)
+                detail_str = f" ({error_detail})" if error_detail else ""
+                return f"Sorry, I couldn't process your request. Ollama API error: {response.status_code}{detail_str}"
 
             response_json = response.json()
-            message = response_json.get("message", {})
-            content = message.get("content")
+            content = response_json.get("message", {}).get("content")
+            return content if content else str(response_json)
 
-            if content:
-                return content
-
-            return str(response_json)
         except Exception as exc:
-            return f"I apologize, but I encountered an error with Ollama: {str(exc)}"
+            logger.exception("Ollama request failed: %s", exc)
+            return f"I apologize, but I encountered an error with Ollama: {exc}"
