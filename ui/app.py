@@ -5,12 +5,13 @@ import logging
 from datetime import datetime
 import json
 from agents import (
-    HuggingFaceProvider,
     GeneralAgent, WeatherAgent, HotelAgent, RestaurantAgent, AttractionAgent
 )
 from core.base import Message
 from core.coordinator import Coordinator
+from core.provider_factory import build_primary_provider
 from dotenv import load_dotenv
+
 
 def create_app():
     """Create and configure the Flask application"""
@@ -35,13 +36,15 @@ def create_app():
         
         # Check available API key
         huggingface_key = os.getenv("HUGGINGFACE_API_KEY")
+        ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
         
         # Log API info
+        logger.info(f"Ollama endpoint: {ollama_base_url}")
         logger.info(f"Hugging Face API: {'✓ (API key provided)' if huggingface_key else '✓ (free tier)'}")
         
-        # Create LLM provider
-        primary_provider = HuggingFaceProvider("HuggingFaceH4/zephyr-7b-beta")
-        logger.info("Using HuggingFace as primary provider")
+        # Create LLM provider with fallback
+        primary_provider_name, primary_provider = build_primary_provider(logger.warning)
+        logger.info(f"Using {primary_provider_name} as primary provider")
         
         # Create specialized agents using the primary provider
         general_assistant = GeneralAgent("Assistant", primary_provider)

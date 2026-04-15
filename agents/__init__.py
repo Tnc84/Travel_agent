@@ -3,6 +3,7 @@
 
 # LLM Providers
 from agents.huggingface_provider import HuggingFaceProvider
+from agents.ollama_provider import OllamaProvider
 
 # Specialized Agents
 from agents.general_agent import GeneralAgent
@@ -16,6 +17,7 @@ from agents.specialized_agent import SpecializedAgent
 
 __all__ = [
     'HuggingFaceProvider',
+    'OllamaProvider',
     'GeneralAgent',
     'WeatherAgent', 
     'HotelAgent', 

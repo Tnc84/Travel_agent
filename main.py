@@ -1,13 +1,14 @@
 from agents import (
-    HuggingFaceProvider,
     GeneralAgent, WeatherAgent, HotelAgent, RestaurantAgent, AttractionAgent
 )
 from core.base import Message
 from core.coordinator import Coordinator
+from core.provider_factory import build_primary_provider
 import os
 import re
 from datetime import datetime
 from dotenv import load_dotenv
+
 
 def main():
     load_dotenv()
@@ -17,19 +18,16 @@ def main():
     
     # Check available API key
     huggingface_key = os.getenv("HUGGINGFACE_API_KEY")
+    ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     
     # Print available API
     print("Available APIs:")
+    print(f"- Ollama: local server at {ollama_base_url}")
     print(f"- Hugging Face: {'✓ (API key provided)' if huggingface_key else '✓ (free tier)'}")
     
-    # Create LLM provider
-    primary_provider = HuggingFaceProvider("HuggingFaceH4/zephyr-7b-beta")
-    print("Using HuggingFace as primary provider")
-    
-    # Initialize provider for possible use
-    providers = {
-        "huggingface": HuggingFaceProvider("HuggingFaceH4/zephyr-7b-beta")
-    }
+    # Create LLM provider with fallback
+    primary_provider_name, primary_provider = build_primary_provider()
+    print(f"Using {primary_provider_name} as primary provider")
     
     # Create specialized agents using the primary provider
     general_assistant = GeneralAgent("Assistant", primary_provider)
