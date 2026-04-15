@@ -11,7 +11,7 @@ def build_primary_provider(
 ) -> Tuple[str, LLMProvider]:
     """Build a primary provider with fallback based on environment configuration."""
     preferred_provider = os.getenv("LLM_PROVIDER", "ollama").strip().lower()
-    ollama_model = os.getenv("OLLAMA_MODEL", "mistral:latest")
+    ollama_model = os.getenv("OLLAMA_MODEL", "ministral-3:3b")
     huggingface_model = os.getenv("HUGGINGFACE_MODEL", "HuggingFaceH4/zephyr-7b-beta")
 
     if preferred_provider not in {"ollama", "huggingface"}:

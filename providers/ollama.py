@@ -19,6 +19,8 @@ class OllamaProvider(LLMProvider):
     def __init__(self, model: str, base_url: str = None):
         super().__init__(model)
         self.base_url = (base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")).rstrip("/")
+        self.request_timeout_seconds = int(os.getenv("OLLAMA_REQUEST_TIMEOUT_SECONDS", "180"))
+        self.max_tokens = int(os.getenv("OLLAMA_MAX_TOKENS", "300"))
         self._initialized = False
 
     @retry_on_error(max_retries=3, delay=1.0, exceptions=(requests.ConnectionError, requests.Timeout))
@@ -50,12 +52,15 @@ class OllamaProvider(LLMProvider):
                 "model": self.model,
                 "messages": chat_messages,
                 "stream": False,
+                "options": {
+                    "num_predict": self.max_tokens,
+                },
             }
 
             response = self._post_with_retry(
                 f"{self.base_url}/api/chat",
                 json=payload,
-                timeout=120,
+                timeout=self.request_timeout_seconds,
             )
 
             if response.status_code != 200:

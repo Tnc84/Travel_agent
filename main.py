@@ -9,6 +9,7 @@ from core.coordinator import Coordinator
 from core.provider_factory import build_primary_provider
 from core.agent_builder import build_agents
 from core.intent_router import match_travel_intent, route_by_keywords
+from core.location_resolver import LocationResolver
 from core.validation import validate_user_input
 
 logging.basicConfig(
@@ -33,6 +34,7 @@ def main():
 
     coordinator = Coordinator()
     build_agents(coordinator, primary_provider)
+    location_resolver = LocationResolver()
 
     print("\nMulti-Agent Travel Assistant System (Type 'exit' to quit)")
     print("Available agents:", ", ".join(coordinator.agents.keys()))
@@ -76,25 +78,35 @@ def main():
             print(f"Detected travel intent for {location} on {date_str}")
             print("Building comprehensive travel guide...")
             try:
+                resolved_location = location_resolver.resolve(location)
+                if not location_resolver.is_confident(resolved_location):
+                    print(
+                        f"I found multiple possible matches for '{location}'. "
+                        "Please include country or county and try again."
+                    )
+                    print("-" * 50)
+                    continue
+
+                canonical_location = resolved_location.canonical_name
                 weather_response = coordinator.process_message(
-                    Message(content=f"What will the weather be like in {location} on {date_str}?", sender="User"),
+                    Message(content=f"What will the weather be like in {canonical_location} on {date_str}?", sender="User"),
                     "WeatherExpert",
                 )
                 hotel_response = coordinator.process_message(
-                    Message(content=f"What are the 5 best hotels in {location}?", sender="User"),
+                    Message(content=f"What are the 5 best hotels in {canonical_location}?", sender="User"),
                     "HotelExpert",
                 )
                 restaurant_response = coordinator.process_message(
-                    Message(content=f"What are the 5 best restaurants in {location}?", sender="User"),
+                    Message(content=f"What are the 5 best restaurants in {canonical_location}?", sender="User"),
                     "RestaurantExpert",
                 )
                 attraction_response = coordinator.process_message(
-                    Message(content=f"What are the 5 best attractions in {location}?", sender="User"),
+                    Message(content=f"What are the 5 best attractions in {canonical_location}?", sender="User"),
                     "AttractionExpert",
                 )
 
                 guide_prompt = (
-                    f"Create a comprehensive travel guide for {location} on {date_str} using the following information:\n\n"
+                    f"Create a comprehensive travel guide for {canonical_location} on {date_str} using the following information:\n\n"
                     f"WEATHER:\n{weather_response.content}\n\n"
                     f"HOTELS:\n{hotel_response.content}\n\n"
                     f"RESTAURANTS:\n{restaurant_response.content}\n\n"

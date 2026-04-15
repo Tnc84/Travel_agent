@@ -42,6 +42,12 @@ LLM_PROVIDER=ollama
 # Optional model settings
 OLLAMA_MODEL=mistral:latest
 HUGGINGFACE_MODEL=HuggingFaceH4/zephyr-7b-beta
+
+# Free location resolver settings
+LOCATION_DEFAULT_COUNTRY_CODE=ro
+LOCATION_CONFIDENCE_THRESHOLD=0.55
+LOCATION_CACHE_TTL_SECONDS=21600
+LOCATION_CACHE_PERSIST=1
 ```
 
 Note: do not use global `pip install` on Ubuntu system Python. Install packages only inside `.venv`.
@@ -75,6 +81,9 @@ Then open `http://127.0.0.1:5000`.
 - `core/agent_registry.py`: single source of truth for available agents and routing keywords
 - `core/agent_builder.py`: creates, initializes, and registers all agents
 - `core/intent_router.py`: shared intent detection and keyword routing
+- `core/location_resolver.py`: canonical location resolution with confidence scoring
+- `core/location_providers.py`: free geocoding adapters (Nominatim + Photon)
+- `core/location_cache.py`: TTL cache for location lookups
 - `agents/prompts/`: reusable system prompts for each agent
 
 ## Extending The System
@@ -85,3 +94,10 @@ Then open `http://127.0.0.1:5000`.
 ## Supported LLM Providers
 - **Ollama**: local server (default `http://localhost:11434`)
 - **Hugging Face**: API-based provider (works with or without key, rate-limited without key)
+
+## Free Location Resolution
+- Travel inputs are resolved into canonical locations before weather/hotel/restaurant prompts are generated.
+- Primary geocoding provider: **Nominatim** (OpenStreetMap), fallback: **Photon**.
+- A confidence score is computed for each location candidate; low-confidence matches trigger user clarification.
+- Repeated lookups are cached with TTL to reduce latency and external API calls.
+- Optional cache persistence file: `history/location_cache.json`.
