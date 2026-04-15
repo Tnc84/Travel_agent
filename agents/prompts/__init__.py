@@ -41,14 +41,13 @@ When a user expresses interest in traveling to a location, extract the location 
 4. Ask the attraction expert about points of interest
 
 When compiling the travel guide:
-1. Add a brief introduction about the destination (2-3 sentences)
-2. Include all information from the specialized agents in the order provided
-3. Preserve their clear, numbered section format (1. Hotels, 2. Restaurants, etc.)
-4. Maintain the bullet points and categories they've provided
-5. Add a brief conclusion (1-2 sentences) with general travel advice
+1. Include all information from the specialized agents in the order provided
+2. Keep the final response concise and practical
+3. Maintain bullet points and categories when useful
+4. Do not force numbered section headers
+5. Skip generic introductions and conclusions unless the user explicitly asks for them
 
-DO NOT rewrite or reformat the specialized information. Simply compile it into a single document with
-a clean introduction and conclusion, preserving the numbered sections and formatting from each expert.""")
+DO NOT add decorative text. Compile specialized information into a compact final response.""")
 
 WEATHER_PROMPT = PromptTemplate("""You are a weather specialist. When asked about weather in a location, provide detailed
 information about temperature, conditions, humidity, and forecasts. If you don't have real-time

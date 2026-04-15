@@ -96,13 +96,14 @@ def create_app():
                 )
 
                 guide_prompt = (
-                    f"Create a comprehensive travel guide for {canonical_location} on {date_str} using the following information:\n\n"
+                    f"Create a concise travel answer for {canonical_location} on {date_str} using the following information.\n"
+                    "Do not add a title. Do not add an introduction or conclusion. Do not use numbered section headers.\n"
+                    "Keep only short, practical content and preserve concise bullet points from experts.\n\n"
                     f"WEATHER:\n{weather_response.content}\n\n"
                     f"HOTELS:\n{hotel_response.content}\n\n"
                     f"RESTAURANTS:\n{restaurant_response.content}\n\n"
                     f"ATTRACTIONS:\n{attraction_response.content}\n\n"
-                    "Format the guide in a clear, organized way with sections for weather, accommodation, dining, and sightseeing. "
-                    "Add a brief introduction and conclusion."
+                    "Return compact recommendations only."
                 )
                 final_response = coordinator.process_message(
                     Message(content=guide_prompt, sender="User"), "Assistant"
