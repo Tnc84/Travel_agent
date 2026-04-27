@@ -10,6 +10,12 @@ from core.provider_factory import build_primary_provider
 from core.agent_builder import build_agents
 from core.intent_router import match_travel_intent, route_by_keywords
 from core.location_resolver import LocationResolver
+from core.travel_flow import (
+    build_structured_fallback_response,
+    generate_travel_response_with_tools,
+    resolve_location_for_travel,
+    run_travel_pipeline,
+)
 from core.validation import validate_user_input
 
 logging.basicConfig(
@@ -78,45 +84,40 @@ def main():
             print(f"Detected travel intent for {location} on {date_str}")
             print("Building comprehensive travel guide...")
             try:
-                resolved_location = location_resolver.resolve(location)
-                if not location_resolver.is_confident(resolved_location):
-                    print(
-                        f"I found multiple possible matches for '{location}'. "
-                        "Please include country or county and try again."
-                    )
+                resolution = resolve_location_for_travel(location, location_resolver)
+                if resolution.clarification_message:
+                    print(resolution.clarification_message.replace("to continue.", "and try again."))
+                    print("-" * 50)
+                    continue
+                resolved_location = resolution.resolved_location
+                if not resolved_location:
+                    print("I could not resolve the destination. Please try again with more details.")
                     print("-" * 50)
                     continue
 
                 canonical_location = resolved_location.canonical_name
-                weather_response = coordinator.process_message(
-                    Message(content=f"What will the weather be like in {canonical_location} on {date_str}?", sender="User"),
-                    "WeatherExpert",
-                )
-                hotel_response = coordinator.process_message(
-                    Message(content=f"What are the 5 best hotels in {canonical_location}?", sender="User"),
-                    "HotelExpert",
-                )
-                restaurant_response = coordinator.process_message(
-                    Message(content=f"What are the 5 best restaurants in {canonical_location}?", sender="User"),
-                    "RestaurantExpert",
-                )
-                attraction_response = coordinator.process_message(
-                    Message(content=f"What are the 5 best attractions in {canonical_location}?", sender="User"),
-                    "AttractionExpert",
-                )
+                print("Collecting weather, hotels, restaurants, and attractions...")
 
-                guide_prompt = (
-                    f"Create a concise travel answer for {canonical_location} on {date_str} using the following information.\n"
-                    "Do not add a title. Do not add an introduction or conclusion. Do not use numbered section headers.\n"
-                    "Keep only short, practical content and preserve concise bullet points from experts.\n\n"
-                    f"WEATHER:\n{weather_response.content}\n\n"
-                    f"HOTELS:\n{hotel_response.content}\n\n"
-                    f"RESTAURANTS:\n{restaurant_response.content}\n\n"
-                    f"ATTRACTIONS:\n{attraction_response.content}\n\n"
-                    "Return compact recommendations only."
-                )
-                final_response = coordinator.process_message(
-                    Message(content=guide_prompt, sender="User"), "Assistant"
+                def _event_callback(event_name, payload):
+                    if event_name == "location_resolved":
+                        print("Location resolved.")
+                    elif event_name.endswith("_ready"):
+                        print(f"{event_name.replace('_ready', '').capitalize()} ready.")
+                    elif event_name == "final_ready":
+                        print("All sections completed.")
+
+                sections = run_travel_pipeline(resolved_location, date_str, event_callback=_event_callback)
+                if not (sections.weather or sections.hotels or sections.restaurants or sections.attractions):
+                    print("Tool providers unavailable. Returning structured fallback.")
+                    print(build_structured_fallback_response(canonical_location, date_str, sections))
+                    print("-" * 50)
+                    continue
+
+                final_response = generate_travel_response_with_tools(
+                    coordinator,
+                    canonical_location,
+                    date_str,
+                    sections,
                 )
                 print(f"{final_response.sender}: {final_response.content}")
             except Exception as exc:

@@ -4,7 +4,7 @@ import os
 import re
 from datetime import datetime
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 from dotenv import load_dotenv
 
 from core.base import Message
@@ -13,6 +13,12 @@ from core.provider_factory import build_primary_provider
 from core.agent_builder import build_agents
 from core.intent_router import match_travel_intent
 from core.location_resolver import LocationResolver
+from core.travel_flow import (
+    build_structured_fallback_response,
+    generate_travel_response_with_tools,
+    resolve_location_for_travel,
+    run_travel_pipeline,
+)
 from core.validation import validate_user_input
 
 
@@ -65,51 +71,23 @@ def create_app():
             if travel:
                 location, date_str = travel
                 logger.info("Detected travel intent for %s on %s", location, date_str)
-                resolved_location = location_resolver.resolve(location)
-                if not location_resolver.is_confident(resolved_location):
-                    return jsonify(
-                        {
-                            "response": (
-                                f"I found multiple possible matches for '{location}'. "
-                                "Please include country or county to continue."
-                            )
-                        }
-                    )
+                resolution = resolve_location_for_travel(location, location_resolver)
+                if resolution.clarification_message:
+                    return jsonify({"response": resolution.clarification_message})
+                resolved_location = resolution.resolved_location
+                if not resolved_location:
+                    return jsonify({"response": "I could not resolve the destination. Please try again with more details."})
 
                 canonical_location = resolved_location.canonical_name
-
-                weather_response = coordinator.process_message(
-                    Message(content=f"What will the weather be like in {canonical_location} on {date_str}?", sender="User"),
-                    "WeatherExpert",
-                )
-                hotel_response = coordinator.process_message(
-                    Message(content=f"What are the 5 best hotels in {canonical_location}?", sender="User"),
-                    "HotelExpert",
-                )
-                restaurant_response = coordinator.process_message(
-                    Message(content=f"What are the 5 best restaurants in {canonical_location}?", sender="User"),
-                    "RestaurantExpert",
-                )
-                attraction_response = coordinator.process_message(
-                    Message(content=f"What are the 5 best attractions in {canonical_location}?", sender="User"),
-                    "AttractionExpert",
-                )
-
-                guide_prompt = (
-                    f"Create a concise travel answer for {canonical_location} on {date_str} using the following information.\n"
-                    "Do not add a title. Do not add an introduction or conclusion. Do not use numbered section headers.\n"
-                    "Keep only short, practical content and preserve concise bullet points from experts.\n\n"
-                    f"WEATHER:\n{weather_response.content}\n\n"
-                    f"HOTELS:\n{hotel_response.content}\n\n"
-                    f"RESTAURANTS:\n{restaurant_response.content}\n\n"
-                    f"ATTRACTIONS:\n{attraction_response.content}\n\n"
-                    "Return compact recommendations only."
-                )
-                final_response = coordinator.process_message(
-                    Message(content=guide_prompt, sender="User"), "Assistant"
-                )
-                logger.info("Final Response: %s", final_response.content)
-                cleaned = _clean_response(final_response.content)
+                sections = run_travel_pipeline(resolved_location, date_str)
+                if sections.weather or sections.hotels or sections.restaurants or sections.attractions:
+                    final_response = generate_travel_response_with_tools(
+                        coordinator, canonical_location, date_str, sections
+                    )
+                    cleaned = _clean_response(final_response.content)
+                else:
+                    cleaned = build_structured_fallback_response(canonical_location, date_str, sections)
+                logger.info("Final Response: %s", cleaned)
 
                 os.makedirs("history", exist_ok=True)
                 filename = f"history/travel_guide_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
@@ -121,10 +99,11 @@ def create_app():
                             "location": location,
                             "resolved_location": resolved_location.to_dict(),
                             "date": date_str,
-                            "weather_response": weather_response.content,
-                            "hotel_response": hotel_response.content,
-                            "restaurant_response": restaurant_response.content,
-                            "attraction_response": attraction_response.content,
+                            # Legacy specialized outputs (disabled in one-call mode):
+                            # "weather_response": weather_response.content,
+                            # "hotel_response": hotel_response.content,
+                            # "restaurant_response": restaurant_response.content,
+                            # "attraction_response": attraction_response.content,
                             "final_response": cleaned,
                         },
                         f,
@@ -142,6 +121,51 @@ def create_app():
             logger.error("Error: %s\n%s", exc, traceback.format_exc())
             return jsonify({"response": "I'm sorry, but I encountered an error processing your request. Please try again."})
 
+    @app.route("/ask/stream", methods=["POST"])
+    def ask_stream():
+        raw_input = request.form.get("user_input", "")
+        try:
+            user_input = validate_user_input(raw_input)
+        except ValueError as exc:
+            return jsonify({"response": str(exc)}), 400
+
+        travel = match_travel_intent(user_input)
+        if not travel:
+            return jsonify({"response": "Streaming is available for travel guide requests only."}), 400
+
+        location, date_str = travel
+        resolution = resolve_location_for_travel(location, location_resolver)
+        if resolution.clarification_message:
+            return jsonify({"response": resolution.clarification_message}), 400
+        resolved_location = resolution.resolved_location
+        if not resolved_location:
+            return jsonify({"response": "I could not resolve the destination. Please try again with more details."}), 400
+
+        canonical_location = resolved_location.canonical_name
+
+        @stream_with_context
+        def event_stream():
+            emitted = []
+
+            def event_callback(event_name, payload):
+                emitted.append((event_name, payload))
+
+            sections = run_travel_pipeline(resolved_location, date_str, event_callback=event_callback)
+            for event_name, payload in emitted:
+                yield _sse_event(event_name, payload)
+
+            if sections.weather or sections.hotels or sections.restaurants or sections.attractions:
+                final_response = generate_travel_response_with_tools(
+                    coordinator, canonical_location, date_str, sections
+                )
+                cleaned = _clean_response(final_response.content)
+            else:
+                cleaned = build_structured_fallback_response(canonical_location, date_str, sections)
+            yield _sse_event("final_message", {"response": cleaned})
+            yield _sse_event("done", {"ok": True})
+
+        return Response(event_stream(), mimetype="text/event-stream")
+
     return app
 
 
@@ -153,3 +177,7 @@ def _clean_response(response_text: str) -> str:
             if len(parts) > 1:
                 return parts[-1].strip()
     return response_text.strip()
+
+
+def _sse_event(event_name: str, payload: dict) -> str:
+    return f"event: {event_name}\ndata: {json.dumps(payload)}\n\n"
