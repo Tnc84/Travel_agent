@@ -19,20 +19,20 @@ _TRAVEL_PATTERNS: List[re.Pattern] = [
         r"|going to|traveling to|travelling to|flying to|heading to|visiting|visit|explore|discover|tour)\s+"
         r"(?:go to|visit|explore|discover|travel to|fly to|head to|see)?\s*"
         r"([a-zA-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F\s]{1,40}?)\s+"
-        r"(?:on|in|during|for|next|this)\s+([a-zA-Z0-9\s,]+)",
+        r"(?:on|in|during|for|next|this)\s+([a-zA-Z0-9\s,./-]+)",
         re.IGNORECASE,
     ),
     # Noun-based: "trip / vacation / holiday to Paris in July"
     re.compile(
         r"(?:trip|travel|journey|vacation|holiday|getaway|tour|vacanta|calatorie)\s+(?:to|in|la|in)\s+"
         r"([a-zA-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F\s]{1,40}?)\s+"
-        r"(?:on|in|during|for|next|this|pe|in)\s+([a-zA-Z0-9\s,]+)",
+        r"(?:on|in|during|for|next|this|pe|in)\s+([a-zA-Z0-9\s,./-]+)",
         re.IGNORECASE,
     ),
-    # Short form: "Sovata 1 mai" / "Paris July 20" / "Roma august"
+    # Short form: "Sovata 1 mai" / "Paris July 20" / "Roma august" / "London 12-07"
     re.compile(
         r"^([a-zA-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F\s]{1,30}?)\s+"
-        r"(\d{1,2}\s+" + _MONTHS + r"|" + _MONTHS + r"(?:\s+\d{1,2})?)"
+        r"(\d{1,2}\s+" + _MONTHS + r"|" + _MONTHS + r"(?:\s+\d{1,2})?|\d{1,2}\s*[-/.]\s*\d{1,2})"
         r"\s*$",
         re.IGNORECASE,
     ),

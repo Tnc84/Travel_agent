@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import time
 from dataclasses import dataclass, field
@@ -10,6 +11,8 @@ from core.location_resolver import LocationResult
 from core.tools.openmeteo_client import OpenMeteoClient
 from core.tools.opentripmap_client import OpenTripMapClient
 from core.tools.osm_overpass_client import OSMOverpassClient
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -75,11 +78,14 @@ class TravelPipeline:
         if on_event:
             on_event("location_resolved", {"location": context.location.to_dict(), "date": context.date_str})
 
+        osm_task = asyncio.create_task(self._load_osm_combined(context))
         tasks = {
             "weather_ready": asyncio.create_task(self._load_weather(context)),
-            "hotels_ready": asyncio.create_task(self._load_places(context, "hotels")),
-            "restaurants_ready": asyncio.create_task(self._load_places(context, "restaurants")),
-            "attractions_ready": asyncio.create_task(self._load_attractions(context)),
+            "hotels_ready": asyncio.create_task(self._load_category(osm_task, "hotels")),
+            "restaurants_ready": asyncio.create_task(self._load_category(osm_task, "restaurants")),
+            "attractions_ready": asyncio.create_task(
+                self._load_attractions_with_fallback(osm_task, context)
+            ),
         }
 
         try:
@@ -107,14 +113,22 @@ class TravelPipeline:
                     results.attractions = payload
                 if on_event:
                     on_event(event_name, payload if isinstance(payload, dict) else {"items": payload})
-            except Exception as exc:
-                results.errors[event_name] = str(exc)
+            except asyncio.CancelledError:
+                results.errors[event_name] = "timed out"
+                logger.warning("Travel pipeline section '%s' timed out", event_name)
                 if on_event:
-                    on_event(event_name, {"error": str(exc)})
+                    on_event(event_name, {"error": "timed out"})
+            except Exception as exc:
+                message = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+                results.errors[event_name] = message
+                logger.warning("Travel pipeline section '%s' failed: %s", event_name, message)
+                if on_event:
+                    on_event(event_name, {"error": message})
 
         for event_name, task in tasks.items():
-            if task.cancelled():
+            if task.cancelled() and event_name not in results.errors:
                 results.errors[event_name] = "timed out"
+                logger.warning("Travel pipeline section '%s' timed out", event_name)
                 if on_event:
                     on_event(event_name, {"error": "timed out"})
 
@@ -139,65 +153,56 @@ class TravelPipeline:
         self.weather_cache.set(key, weather)
         return weather
 
-    async def _load_places(self, context: TravelContext, category: str) -> List[Dict]:
+    async def _load_osm_combined(self, context: TravelContext) -> Dict[str, List[Dict]]:
         key = (
-            f"{category}:{context.location.lat:.4f}:{context.location.lon:.4f}:"
+            f"osm_combined:{context.location.lat:.4f}:{context.location.lon:.4f}:"
             f"{self.search_radius_m}"
         )
         cached = self.place_cache.get(key)
         if cached:
             return cached
 
-        places = await asyncio.wait_for(
+        grouped = await asyncio.wait_for(
             asyncio.to_thread(
-                self.overpass.search,
+                self.overpass.search_combined,
                 context.location.lat,
                 context.location.lon,
                 self.search_radius_m,
-                category,
-                10,
-            ),
-            timeout=self.tool_timeout_seconds,
-        )
-        ranked = self._rank_places(places)
-        self.place_cache.set(key, ranked)
-        return ranked
-
-    async def _load_attractions(self, context: TravelContext) -> List[Dict]:
-        key = (
-            f"attractions:{context.location.lat:.4f}:{context.location.lon:.4f}:"
-            f"{self.search_radius_m}"
-        )
-        cached = self.place_cache.get(key)
-        if cached:
-            return cached
-
-        attractions = await asyncio.wait_for(
-            asyncio.to_thread(
-                self.overpass.search,
-                context.location.lat,
-                context.location.lon,
-                self.search_radius_m,
-                "attractions",
+                ("hotels", "restaurants", "attractions"),
                 12,
             ),
             timeout=self.tool_timeout_seconds,
         )
+        self.place_cache.set(key, grouped)
+        return grouped
+
+    async def _load_category(self, osm_task: "asyncio.Task[Dict[str, List[Dict]]]", category: str) -> List[Dict]:
+        grouped = await osm_task
+        return self._rank_places(grouped.get(category, []))
+
+    async def _load_attractions_with_fallback(
+        self,
+        osm_task: "asyncio.Task[Dict[str, List[Dict]]]",
+        context: TravelContext,
+    ) -> List[Dict]:
+        grouped = await osm_task
+        attractions = list(grouped.get("attractions", []))
         if len(attractions) < 3 and self.opentripmap.is_enabled():
-            fallback = await asyncio.wait_for(
-                asyncio.to_thread(
-                    self.opentripmap.find_attractions,
-                    context.location.lat,
-                    context.location.lon,
-                    self.search_radius_m,
-                    8,
-                ),
-                timeout=self.tool_timeout_seconds,
-            )
-            attractions.extend(fallback)
-        ranked = self._rank_places(attractions)
-        self.place_cache.set(key, ranked)
-        return ranked
+            try:
+                fallback = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self.opentripmap.find_attractions,
+                        context.location.lat,
+                        context.location.lon,
+                        self.search_radius_m,
+                        8,
+                    ),
+                    timeout=self.tool_timeout_seconds,
+                )
+                attractions.extend(fallback)
+            except Exception as exc:
+                logger.warning("OpenTripMap fallback failed: %s", exc)
+        return self._rank_places(attractions)
 
     @staticmethod
     def _rank_places(places: List[Dict]) -> List[Dict]:

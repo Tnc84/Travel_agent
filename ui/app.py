@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 from core.base import Message
 from core.coordinator import Coordinator
+from core.date_parser import normalize_user_date_to_iso
 from core.provider_factory import build_primary_provider
 from core.agent_builder import build_agents
 from core.intent_router import match_travel_intent
@@ -69,7 +70,11 @@ def create_app():
 
         try:
             if travel:
-                location, date_str = travel
+                location, raw_date_str = travel
+                try:
+                    date_str = normalize_user_date_to_iso(raw_date_str)
+                except ValueError as exc:
+                    return jsonify({"response": str(exc)})
                 logger.info("Detected travel intent for %s on %s", location, date_str)
                 resolution = resolve_location_for_travel(location, location_resolver)
                 if resolution.clarification_message:
@@ -133,7 +138,11 @@ def create_app():
         if not travel:
             return jsonify({"response": "Streaming is available for travel guide requests only."}), 400
 
-        location, date_str = travel
+        location, raw_date_str = travel
+        try:
+            date_str = normalize_user_date_to_iso(raw_date_str)
+        except ValueError as exc:
+            return jsonify({"response": str(exc)}), 400
         resolution = resolve_location_for_travel(location, location_resolver)
         if resolution.clarification_message:
             return jsonify({"response": resolution.clarification_message}), 400

@@ -89,26 +89,53 @@ def generate_travel_response_with_tools(
 
 
 def build_structured_fallback_response(canonical_location: str, date_str: str, sections: SectionResults) -> str:
-    weather = sections.weather or {}
-    weather_text = (
-        f"- {weather.get('date', date_str)}: {weather.get('tmin_c', 'N/A')} to {weather.get('tmax_c', 'N/A')} C, "
-        f"precipitation risk {weather.get('precipitation_probability_max', 'N/A')}%."
-        if weather
-        else "- Weather data unavailable."
-    )
-    return "\n".join(
-        [
-            f"Travel guide for {canonical_location} ({date_str})",
-            "Weather:",
-            weather_text,
-            "Hotels:",
-            *_format_place_lines(sections.hotels),
-            "Restaurants:",
-            *_format_place_lines(sections.restaurants),
-            "Attractions:",
-            *_format_place_lines(sections.attractions),
-        ]
-    )
+    weather_text = _format_weather_line(sections, date_str)
+    osm_error = _osm_error_message(sections.errors)
+
+    lines = [
+        f"Travel guide for {canonical_location} ({date_str})",
+        "Weather:",
+        weather_text,
+        "Hotels:",
+        *_format_place_lines(sections.hotels, osm_error),
+        "Restaurants:",
+        *_format_place_lines(sections.restaurants, osm_error),
+        "Attractions:",
+        *_format_place_lines(sections.attractions, osm_error),
+    ]
+    if osm_error:
+        lines.append("")
+        lines.append(f"Note: {osm_error}")
+    return "\n".join(lines)
+
+
+def _format_weather_line(sections: SectionResults, date_str: str) -> str:
+    weather = sections.weather
+    if not weather:
+        weather_error = sections.errors.get("weather_ready")
+        if weather_error:
+            return f"- Weather data unavailable ({weather_error})."
+        return "- Weather data unavailable."
+
+    tmin = weather.get("tmin_c", "N/A")
+    tmax = weather.get("tmax_c", "N/A")
+    base = f"- {weather.get('date', date_str)}: {tmin} to {tmax} C"
+    if weather.get("precipitation_probability_max") is not None:
+        base += f", precipitation risk {weather['precipitation_probability_max']}%."
+    elif weather.get("precipitation_sum_mm") is not None:
+        base += f", historical precipitation {weather['precipitation_sum_mm']}mm."
+    else:
+        base += "."
+    if weather.get("note"):
+        base += f"\n  ({weather['note']})"
+    return base
+
+
+def _osm_error_message(errors: Dict[str, str]) -> Optional[str]:
+    relevant = [errors[key] for key in ("hotels_ready", "restaurants_ready", "attractions_ready") if key in errors]
+    if not relevant:
+        return None
+    return "Points-of-interest data temporarily unavailable (OSM Overpass not responding). Please retry shortly."
 
 
 def _format_places(title: str, places: List[Dict]) -> str:
@@ -116,9 +143,9 @@ def _format_places(title: str, places: List[Dict]) -> str:
     return f"{title}:\n" + "\n".join(lines)
 
 
-def _format_place_lines(places: List[Dict]) -> List[str]:
+def _format_place_lines(places: List[Dict], unavailable_message: Optional[str] = None) -> List[str]:
     if not places:
-        return ["- No data available."]
+        return [f"- {unavailable_message}" if unavailable_message else "- No data available."]
     lines = []
     for item in places[:5]:
         phone = item.get("phone") if item.get("phone") else "unavailable"

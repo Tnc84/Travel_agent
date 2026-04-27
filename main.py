@@ -8,6 +8,7 @@ from core.base import Message
 from core.coordinator import Coordinator
 from core.provider_factory import build_primary_provider
 from core.agent_builder import build_agents
+from core.date_parser import normalize_user_date_to_iso
 from core.intent_router import match_travel_intent, route_by_keywords
 from core.location_resolver import LocationResolver
 from core.travel_flow import (
@@ -80,7 +81,13 @@ def main():
         travel = match_travel_intent(user_input)
 
         if travel:
-            location, date_str = travel
+            location, raw_date_str = travel
+            try:
+                date_str = normalize_user_date_to_iso(raw_date_str)
+            except ValueError as exc:
+                print(f"Date error: {exc}")
+                print("-" * 50)
+                continue
             print(f"Detected travel intent for {location} on {date_str}")
             print("Building comprehensive travel guide...")
             try:

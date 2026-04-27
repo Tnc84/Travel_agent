@@ -1,15 +1,17 @@
-# Multi-Agent Chatbot
+# Multi-Agent Travel Assistant
 
-A flexible and extensible multi-agent chatbot system built with Python.
+A flexible and extensible multi-agent travel assistant built with Python.
 
 ## Features
-- Modular agent system
+- Modular multi-agent architecture
 - Multiple LLM provider support (Ollama, Hugging Face)
-- Easy to extend with new agents
-- SOLID principles implementation
-- Centralized provider/model selection in `core/provider_factory.py` with fallback support
-- Centralized agent registration/routing with `core/agent_registry.py` and `core/intent_router.py`
-- Prompt management moved to `agents/prompts/`
+- Free travel data pipeline (OpenStreetMap Overpass + Open-Meteo, optional OpenTripMap fallback)
+- Async tool fan-out with partial/degraded responses
+- Streaming support for web (`/ask/stream`) and progressive rendering in CLI
+- Flexible date parsing (RO/EN): `15 Aug`, `23 Iul`, `Jul 23`, `August 15`, `25-04`, `10-23`
+- Phone-aware ranking for venues (`contact:phone` / `phone` first)
+- Centralized provider/model selection in `core/provider_factory.py`
+- Centralized agent registration/routing in `core/agent_registry.py` and `core/intent_router.py`
 
 ## Setup
 
@@ -31,7 +33,7 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-4. Create a `.env` file with your API keys:
+4. Create a `.env` file:
 ```
 # Optional for Hugging Face (higher rate limits with key)
 HUGGINGFACE_API_KEY=your_huggingface_api_key_here
@@ -48,6 +50,21 @@ LOCATION_DEFAULT_COUNTRY_CODE=ro
 LOCATION_CONFIDENCE_THRESHOLD=0.55
 LOCATION_CACHE_TTL_SECONDS=21600
 LOCATION_CACHE_PERSIST=1
+
+# Travel pipeline timeouts/caches
+TRAVEL_TOOL_TIMEOUT_SECONDS=8
+TRAVEL_GLOBAL_TIMEOUT_SECONDS=15
+TRAVEL_SEARCH_RADIUS_M=4000
+TRAVEL_WEATHER_CACHE_TTL_SECONDS=1800
+TRAVEL_PLACES_CACHE_TTL_SECONDS=1800
+
+# Free tools endpoints
+OPEN_METEO_ENDPOINT=https://api.open-meteo.com/v1/forecast
+OPEN_METEO_ARCHIVE_ENDPOINT=https://archive-api.open-meteo.com/v1/archive
+OVERPASS_ENDPOINTS=https://overpass-api.de/api/interpreter,https://overpass.kumi.systems/api/interpreter,https://overpass.openstreetmap.fr/api/interpreter
+
+# Optional: OpenTripMap fallback for attractions
+OPENTRIPMAP_API_KEY=
 ```
 
 Note: do not use global `pip install` on Ubuntu system Python. Install packages only inside `.venv`.
@@ -66,13 +83,23 @@ python3 run.py
 
 Then open `http://127.0.0.1:5000`.
 
+### Travel Query Examples
+- `I want to go to London on 23 Iul`
+- `London 15 August`
+- `I want to go to New York on December 24`
+- `Paris 25-04`
+- `Rome 10-23`
+
+Numeric ambiguous dates like `06-12` are rejected by design to avoid silent misinterpretation.
+
 ## Project Structure
 - `main.py`: CLI entry point
 - `run.py`: web app launcher
 - `ui/`: web interface
 - `agents/`: specialized agents only
 - `providers/`: LLM provider abstractions and implementations
-- `core/`: coordinator, provider factory, registry, builder, and routing logic
+- `core/`: coordinator, provider factory, registry, router, location and travel pipeline logic
+- `core/tools/`: external free tool clients (Overpass, Open-Meteo, OpenTripMap)
 
 ## Architecture Notes
 - `providers/base.py`: abstract provider contract (`LLMProvider`)
@@ -81,9 +108,15 @@ Then open `http://127.0.0.1:5000`.
 - `core/agent_registry.py`: single source of truth for available agents and routing keywords
 - `core/agent_builder.py`: creates, initializes, and registers all agents
 - `core/intent_router.py`: shared intent detection and keyword routing
+- `core/date_parser.py`: normalizes flexible user dates to ISO (`YYYY-MM-DD`)
 - `core/location_resolver.py`: canonical location resolution with confidence scoring
 - `core/location_providers.py`: free geocoding adapters (Nominatim + Photon)
 - `core/location_cache.py`: TTL cache for location lookups
+- `core/travel_pipeline.py`: async orchestration for weather/hotels/restaurants/attractions
+- `core/travel_flow.py`: thin integration layer for CLI/web entrypoints
+- `core/tools/osm_overpass_client.py`: OSM POI retrieval + failover endpoints
+- `core/tools/openmeteo_client.py`: forecast + climate-normal fallback for distant dates
+- `core/tools/opentripmap_client.py`: optional attractions fallback
 - `agents/prompts/`: reusable system prompts for each agent
 
 ## Extending The System
@@ -101,3 +134,10 @@ Then open `http://127.0.0.1:5000`.
 - A confidence score is computed for each location candidate; low-confidence matches trigger user clarification.
 - Repeated lookups are cached with TTL to reduce latency and external API calls.
 - Optional cache persistence file: `history/location_cache.json`.
+
+## Travel Pipeline Behavior
+- Runs weather + POI sections in parallel.
+- Returns partial output if one provider fails.
+- For dates beyond live forecast horizon, weather uses climate-normal fallback from historical data.
+- Hotels/restaurants/attractions are prioritized by real phone availability when present.
+- SSE endpoint `POST /ask/stream` emits: `location_resolved`, section-ready events, `final_message`, `done`.
