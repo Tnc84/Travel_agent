@@ -14,6 +14,17 @@ A flexible and extensible multi-agent travel assistant built with Python.
 - Centralized provider/model selection in `core/llm/wiring.py` (`build_primary_provider`)
 - Centralized agent wiring in `core/agent_platform/` and intent routing in `core/intent/`
 
+## Latest Improvements
+- LangGraph is now the only travel runtime path (legacy async pipeline removed).
+- Graph execution is managed by `TravelGraphRunner` with process-lifetime resources.
+- Parallel weather + POI branches are merged through explicit typed graph state reducers.
+- SSE stream contract is stabilized in `/ask/stream` with progressive section events and terminal `done`.
+- Checkpoint mode is stricter and explicit:
+  - Postgres checkpointing when `LANGGRAPH_CHECKPOINT_DSN` is set.
+  - In-memory degraded mode allowed only when `LANGGRAPH_ALLOW_NO_CHECKPOINT=1`.
+  - Fail-fast startup when checkpoint is required (`LANGGRAPH_ALLOW_NO_CHECKPOINT=0`) and DSN is missing/unreachable.
+- Centralized provider selection and agent discovery keep CLI/web routing behavior consistent.
+
 ## System architecture
 
 High-level view of the repository: entrypoints, shared core services, the LangGraph travel runtime (with Postgres checkpointing), free-data tools, and the multi-agent LLM stack.
@@ -131,6 +142,16 @@ python -m pip install --upgrade pip
 3. Install dependencies:
 ```bash
 pip install -r requirements.txt
+```
+
+Optional (recommended for durable LangGraph checkpoints): start Postgres with Docker:
+```bash
+docker run -d --name travel-postgres \
+  -e POSTGRES_PASSWORD=changeme \
+  -e POSTGRES_USER=travel \
+  -e POSTGRES_DB=travel_agent \
+  -p 5432:5432 \
+  postgres
 ```
 
 4. Create a `.env` file:
@@ -282,6 +303,7 @@ Numeric ambiguous dates like `06-12` are rejected by design to avoid silent misi
 - If the DSN is **unset** and `LANGGRAPH_ALLOW_NO_CHECKPOINT` is not `0`, the runtime defaults to an **in-memory** checkpointer (one-time warning in logs) so `python3 run.py` works without Postgres.
 - Set `LANGGRAPH_ALLOW_NO_CHECKPOINT=0` to **require** a DSN (fail fast when Postgres is not configured).
 - If a DSN is set but Postgres is unreachable, `open_checkpointer` can fall back to in-memory only when `LANGGRAPH_ALLOW_NO_CHECKPOINT=1`.
+- Web startup logs checkpoint mode as `LangGraph travel runtime started (checkpoint=True|False)`.
 
 ### Failure modes and recovery
 - Per-node timeouts (`TRAVEL_TOOL_TIMEOUT_SECONDS`) bound external API calls.
