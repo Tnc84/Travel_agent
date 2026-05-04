@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-from core.utils import retry_on_error
+from core.support import retry_on_error
 
 logger = logging.getLogger(__name__)
 

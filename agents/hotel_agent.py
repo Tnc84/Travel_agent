@@ -1,7 +1,7 @@
 from agents.specialized_agent import SpecializedAgent
 from agents.prompts import HOTEL_PROMPT
-from core.agent_registry import register_agent
-from providers.base import LLMProvider
+from core.agent_platform import register_agent
+from llm_providers.base import LLMProvider
 
 
 @register_agent(

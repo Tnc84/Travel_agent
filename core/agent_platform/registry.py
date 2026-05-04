@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict, List, Type
+from typing import Dict, List, Optional, Type
 
 _REGISTRY: Dict[str, "AgentDefinition"] = {}
 
@@ -13,7 +13,7 @@ class AgentDefinition:
     keywords: List[str] = field(default_factory=list)
 
 
-def register_agent(name: str, keywords: List[str] = None):
+def register_agent(name: str, keywords: Optional[List[str]] = None):
     """Class decorator that registers an agent in the global registry.
 
     Usage:

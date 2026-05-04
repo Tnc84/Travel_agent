@@ -2,9 +2,9 @@ import importlib
 import pkgutil
 
 import agents as _agents_package
-from providers.base import LLMProvider
-from core.coordinator import Coordinator
-from core.agent_registry import get_definitions
+from llm_providers.base import LLMProvider
+from core.agent_platform.coordinator import Coordinator
+from core.agent_platform.registry import get_definitions
 
 
 def discover_agents() -> None:

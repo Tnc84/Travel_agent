@@ -4,8 +4,8 @@ import unicodedata
 from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional
 
-from core.location_cache import LocationCache
-from core.location_providers import (
+from core.location.cache import LocationCache
+from core.location.providers import (
     LocationCandidate,
     NominatimLocationProvider,
     PhotonLocationProvider,
@@ -137,6 +137,23 @@ class LocationResolver:
 
     def is_confident(self, result: Optional[LocationResult]) -> bool:
         return bool(result and result.confidence >= self.confidence_threshold)
+
+    def clarification_message(
+        self, query: str, result: Optional[LocationResult]
+    ) -> Optional[str]:
+        """Return a user-facing clarification message, or None if `result` is confident.
+
+        Single source of truth for ambiguous/missing-location wording, used by both
+        entrypoint adapters and the resolve_location graph node.
+        """
+        if result is None:
+            return f"I could not resolve '{query}'. Please try again with more details."
+        if not self.is_confident(result):
+            return (
+                f"I found multiple possible matches for '{query}'. "
+                "Please include country or county to continue."
+            )
+        return None
 
     @staticmethod
     def normalize_query(query: str) -> str:

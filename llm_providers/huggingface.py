@@ -6,8 +6,8 @@ from typing import Dict, List
 import requests
 from dotenv import load_dotenv
 
-from providers.base import LLMProvider
-from core.utils import retry_on_error
+from llm_providers.base import LLMProvider
+from core.support import retry_on_error
 
 load_dotenv()
 

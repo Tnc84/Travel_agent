@@ -1,7 +1,7 @@
 from typing import Dict, List
 
-from core.base import Agent, Message
-from providers.base import LLMProvider
+from core.agent_platform import Agent, Message
+from llm_providers.base import LLMProvider
 
 _DEFAULT_HISTORY_LIMIT = 5
 

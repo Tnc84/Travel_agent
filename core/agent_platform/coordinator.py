@@ -1,6 +1,6 @@
 from typing import Dict, Optional
 
-from core.base import Agent, Message
+from core.agent_platform.base import Agent, Message
 
 
 class Coordinator:
