@@ -1,25 +1,20 @@
+import atexit
 import json
 import logging
 import os
-import re
+import traceback
 from datetime import datetime
 
-from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 from dotenv import load_dotenv
+from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
-from core.base import Message
-from core.coordinator import Coordinator
-from core.date_parser import normalize_user_date_to_iso
-from core.provider_factory import build_primary_provider
-from core.agent_builder import build_agents
-from core.intent_router import match_travel_intent
-from core.location_resolver import LocationResolver
-from core.travel_flow import (
-    build_structured_fallback_response,
-    generate_travel_response_with_tools,
-    resolve_location_for_travel,
-    run_travel_pipeline,
-)
+from core.agent_platform import Coordinator, Message
+from core.agent_platform.builder import build_agents
+from core.graph.runner import TravelGraphRunner
+from core.intent import match_travel_intent
+from core.location import LocationResolver
+from core.llm import build_primary_provider
+from core.support import clean_llm_response
 from core.validation import validate_user_input
 
 
@@ -40,17 +35,25 @@ def create_app():
         ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
         logger.info("Ollama endpoint: %s", ollama_base_url)
-        logger.info("Hugging Face API: %s", "✓ (API key provided)" if huggingface_key else "✓ (free tier)")
+        logger.info(
+            "Hugging Face API: %s",
+            "✓ (API key provided)" if huggingface_key else "✓ (free tier)",
+        )
 
         primary_provider_name, primary_provider = build_primary_provider(logger.warning)
         logger.info("Using %s as primary provider", primary_provider_name)
 
-        coordinator = Coordinator()
-        build_agents(coordinator, primary_provider)
-        return coordinator
+        coordinator_local = Coordinator()
+        build_agents(coordinator_local, primary_provider)
+        return coordinator_local
 
     coordinator = initialize_agents()
     location_resolver = LocationResolver()
+
+    runner = TravelGraphRunner(coordinator, location_resolver)
+    runner.__enter__()
+    logger.info("LangGraph travel runtime started (checkpoint=%s)", bool(runner.config.checkpoint_dsn))
+    atexit.register(lambda: runner.__exit__(None, None, None))
 
     @app.route("/")
     def index():
@@ -71,28 +74,21 @@ def create_app():
         try:
             if travel:
                 location, raw_date_str = travel
-                try:
-                    date_str = normalize_user_date_to_iso(raw_date_str)
-                except ValueError as exc:
-                    return jsonify({"response": str(exc)})
-                logger.info("Detected travel intent for %s on %s", location, date_str)
-                resolution = resolve_location_for_travel(location, location_resolver)
-                if resolution.clarification_message:
-                    return jsonify({"response": resolution.clarification_message})
-                resolved_location = resolution.resolved_location
-                if not resolved_location:
-                    return jsonify({"response": "I could not resolve the destination. Please try again with more details."})
+                logger.info("Detected travel intent for %s on %s", location, raw_date_str)
 
-                canonical_location = resolved_location.canonical_name
-                sections = run_travel_pipeline(resolved_location, date_str)
-                if sections.weather or sections.hotels or sections.restaurants or sections.attractions:
-                    final_response = generate_travel_response_with_tools(
-                        coordinator, canonical_location, date_str, sections
-                    )
-                    cleaned = _clean_response(final_response.content)
-                else:
-                    cleaned = build_structured_fallback_response(canonical_location, date_str, sections)
-                logger.info("Final Response: %s", cleaned)
+                final_state = runner.invoke(
+                    user_input=user_input,
+                    raw_location=location,
+                    raw_date=raw_date_str,
+                )
+                cleaned = final_state.get("final_response") or ""
+                logger.info(
+                    "Final Response (run_id=%s thread_id=%s status=%s): %s",
+                    final_state.get("run_id"),
+                    final_state.get("thread_id"),
+                    final_state.get("status"),
+                    cleaned,
+                )
 
                 os.makedirs("history", exist_ok=True)
                 filename = f"history/travel_guide_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
@@ -102,13 +98,11 @@ def create_app():
                             "timestamp": datetime.now().isoformat(),
                             "user_query": user_input,
                             "location": location,
-                            "resolved_location": resolved_location.to_dict(),
-                            "date": date_str,
-                            # Legacy specialized outputs (disabled in one-call mode):
-                            # "weather_response": weather_response.content,
-                            # "hotel_response": hotel_response.content,
-                            # "restaurant_response": restaurant_response.content,
-                            # "attraction_response": attraction_response.content,
+                            "resolved_location": final_state.get("resolved_location"),
+                            "date": final_state.get("date_str") or raw_date_str,
+                            "status": final_state.get("status"),
+                            "run_id": final_state.get("run_id"),
+                            "thread_id": final_state.get("thread_id"),
                             "final_response": cleaned,
                         },
                         f,
@@ -119,12 +113,31 @@ def create_app():
 
             response = coordinator.process_message(user_message, "Assistant")
             logger.info("Assistant Response: %s", response.content)
-            return jsonify({"response": _clean_response(response.content)})
+            return jsonify({"response": clean_llm_response(response.content)})
+
+        except TimeoutError as exc:
+            limit = getattr(runner, "config", None)
+            secs = getattr(limit, "global_timeout_seconds", None) if limit else None
+            logger.error(
+                "Graph timed out (%s); TRAVEL_GLOBAL_TIMEOUT_SECONDS=%s",
+                exc,
+                secs,
+                exc_info=True,
+            )
+            return jsonify(
+                {
+                    "response": (
+                        "The travel guide took too long to finish. Try again, or increase "
+                        "TRAVEL_GLOBAL_TIMEOUT_SECONDS if you use a slow local LLM."
+                    )
+                }
+            )
 
         except Exception as exc:
-            import traceback
             logger.error("Error: %s\n%s", exc, traceback.format_exc())
-            return jsonify({"response": "I'm sorry, but I encountered an error processing your request. Please try again."})
+            return jsonify(
+                {"response": "I'm sorry, but I encountered an error processing your request. Please try again."}
+            )
 
     @app.route("/ask/stream", methods=["POST"])
     def ask_stream():
@@ -139,53 +152,19 @@ def create_app():
             return jsonify({"response": "Streaming is available for travel guide requests only."}), 400
 
         location, raw_date_str = travel
-        try:
-            date_str = normalize_user_date_to_iso(raw_date_str)
-        except ValueError as exc:
-            return jsonify({"response": str(exc)}), 400
-        resolution = resolve_location_for_travel(location, location_resolver)
-        if resolution.clarification_message:
-            return jsonify({"response": resolution.clarification_message}), 400
-        resolved_location = resolution.resolved_location
-        if not resolved_location:
-            return jsonify({"response": "I could not resolve the destination. Please try again with more details."}), 400
-
-        canonical_location = resolved_location.canonical_name
 
         @stream_with_context
         def event_stream():
-            emitted = []
-
-            def event_callback(event_name, payload):
-                emitted.append((event_name, payload))
-
-            sections = run_travel_pipeline(resolved_location, date_str, event_callback=event_callback)
-            for event_name, payload in emitted:
+            for event_name, payload in runner.stream_events(
+                user_input=user_input,
+                raw_location=location,
+                raw_date=raw_date_str,
+            ):
                 yield _sse_event(event_name, payload)
-
-            if sections.weather or sections.hotels or sections.restaurants or sections.attractions:
-                final_response = generate_travel_response_with_tools(
-                    coordinator, canonical_location, date_str, sections
-                )
-                cleaned = _clean_response(final_response.content)
-            else:
-                cleaned = build_structured_fallback_response(canonical_location, date_str, sections)
-            yield _sse_event("final_message", {"response": cleaned})
-            yield _sse_event("done", {"ok": True})
 
         return Response(event_stream(), mimetype="text/event-stream")
 
     return app
-
-
-def _clean_response(response_text: str) -> str:
-    """Strip any residual prompt leakage from model response."""
-    for marker in ("System:", "User:", "Assistant:"):
-        if response_text.startswith(marker):
-            parts = response_text.split("Assistant:", 1)
-            if len(parts) > 1:
-                return parts[-1].strip()
-    return response_text.strip()
 
 
 def _sse_event(event_name: str, payload: dict) -> str:
