@@ -1,198 +1,151 @@
-from agents import (
-    HuggingFaceProvider,
-    GeneralAgent, WeatherAgent, HotelAgent, RestaurantAgent, AttractionAgent
-)
+import logging
+import os
+import traceback
+
+from dotenv import load_dotenv
+
 from core.base import Message
 from core.coordinator import Coordinator
-import os
-import re
-from datetime import datetime
-from dotenv import load_dotenv
+from core.provider_factory import build_primary_provider
+from core.agent_builder import build_agents
+from core.date_parser import normalize_user_date_to_iso
+from core.intent_router import match_travel_intent, route_by_keywords
+from core.location_resolver import LocationResolver
+from core.travel_flow import (
+    build_structured_fallback_response,
+    generate_travel_response_with_tools,
+    resolve_location_for_travel,
+    run_travel_pipeline,
+)
+from core.validation import validate_user_input
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
 
 def main():
     load_dotenv()
-    
-    # Create coordinator
-    coordinator = Coordinator()
-    
-    # Check available API key
+
     huggingface_key = os.getenv("HUGGINGFACE_API_KEY")
-    
-    # Print available API
+    ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
     print("Available APIs:")
+    print(f"- Ollama: local server at {ollama_base_url}")
     print(f"- Hugging Face: {'✓ (API key provided)' if huggingface_key else '✓ (free tier)'}")
-    
-    # Create LLM provider
-    primary_provider = HuggingFaceProvider("HuggingFaceH4/zephyr-7b-beta")
-    print("Using HuggingFace as primary provider")
-    
-    # Initialize provider for possible use
-    providers = {
-        "huggingface": HuggingFaceProvider("HuggingFaceH4/zephyr-7b-beta")
-    }
-    
-    # Create specialized agents using the primary provider
-    general_assistant = GeneralAgent("Assistant", primary_provider)
-    weather_assistant = WeatherAgent("WeatherExpert", primary_provider)
-    hotel_assistant = HotelAgent("HotelExpert", primary_provider)
-    restaurant_assistant = RestaurantAgent("RestaurantExpert", primary_provider)
-    attraction_assistant = AttractionAgent("AttractionExpert", primary_provider)
-    
-    # Initialize agents
-    general_assistant.initialize()
-    weather_assistant.initialize()
-    hotel_assistant.initialize()
-    restaurant_assistant.initialize()
-    attraction_assistant.initialize()
-    
-    # Add agents to coordinator
-    coordinator.add_agent(general_assistant)
-    coordinator.add_agent(weather_assistant)
-    coordinator.add_agent(hotel_assistant)
-    coordinator.add_agent(restaurant_assistant)
-    coordinator.add_agent(attraction_assistant)
-    
+
+    primary_provider_name, primary_provider = build_primary_provider()
+    print(f"Using {primary_provider_name} as primary provider")
+
+    coordinator = Coordinator()
+    build_agents(coordinator, primary_provider)
+    location_resolver = LocationResolver()
+
     print("\nMulti-Agent Travel Assistant System (Type 'exit' to quit)")
-    print("Available agents: Assistant, WeatherExpert, HotelExpert, RestaurantExpert, AttractionExpert")
-    print("You can switch agents by typing '@AgentName your message'")
-    print("For a comprehensive travel guide, simply say: 'I want to go to [location] on [date]'")
+    print("Available agents:", ", ".join(coordinator.agents.keys()))
+    print("Switch agents: '@AgentName your message'")
+    print("Travel guide: 'I want to go to [location] on [date]'")
     print("-" * 50)
-    
-    current_agent = "Assistant"  # Default agent
-    
+
+    current_agent = "Assistant"
+
     while True:
-        # Get user input
-        user_input = input("You: ").strip()
-        
-        if user_input.lower() == 'exit':
+        raw_input = input("You: ")
+
+        if raw_input.strip().lower() == "exit":
             break
-        
-        # Check for agent switching command
-        if user_input.lower().startswith("@"):
+
+        try:
+            user_input = validate_user_input(raw_input)
+        except ValueError as exc:
+            print(f"Input error: {exc}")
+            continue
+
+        if user_input.startswith("@"):
             parts = user_input.split(" ", 1)
-            agent_name = parts[0][1:]  # Remove @ symbol
-            
+            agent_name = parts[0][1:]
             if agent_name in coordinator.agents:
                 current_agent = agent_name
                 print(f"Switched to {current_agent}")
-                
-                # If there's a message after the agent name, process it
                 if len(parts) > 1:
                     user_input = parts[1]
                 else:
                     continue
             else:
-                print(f"Agent '{agent_name}' not found. Available agents: {', '.join(coordinator.agents.keys())}")
+                print(f"Agent '{agent_name}' not found. Available: {', '.join(coordinator.agents.keys())}")
                 continue
-        
-        # Create user message
-        user_message = Message(
-            content=user_input,
-            sender="User"
-        )
-        
-        # Check for travel intent pattern: "I want to go to/in [location] on [date]"
-        travel_pattern = re.compile(r"(?:i want to|planning to|going to|travel to|visit) (?:go to|go in|visit) ([a-zA-Z\s]+) (?:on|at|in) ([a-zA-Z0-9\s,]+)", re.IGNORECASE)
-        match = travel_pattern.search(user_input)
-        
-        if match:
-            # Extract location and date
-            location = match.group(1).strip()
-            date_str = match.group(2).strip()
-            
+
+        user_message = Message(content=user_input, sender="User")
+        travel = match_travel_intent(user_input)
+
+        if travel:
+            location, raw_date_str = travel
+            try:
+                date_str = normalize_user_date_to_iso(raw_date_str)
+            except ValueError as exc:
+                print(f"Date error: {exc}")
+                print("-" * 50)
+                continue
             print(f"Detected travel intent for {location} on {date_str}")
             print("Building comprehensive travel guide...")
-            
-            # Collect information from all specialized agents
             try:
-                # 1. Get weather information
-                weather_query = f"What will the weather be like in {location} on {date_str}?"
-                weather_message = Message(content=weather_query, sender="User")
-                weather_response = coordinator.process_message(weather_message, "WeatherExpert")
-                
-                # 2. Get hotel information
-                hotel_query = f"What are the 5 best hotels in {location}?"
-                hotel_message = Message(content=hotel_query, sender="User")
-                hotel_response = coordinator.process_message(hotel_message, "HotelExpert")
-                
-                # 3. Get restaurant information
-                restaurant_query = f"What are the 5 best restaurants in {location}?"
-                restaurant_message = Message(content=restaurant_query, sender="User")
-                restaurant_response = coordinator.process_message(restaurant_message, "RestaurantExpert")
-                
-                # 4. Get attraction information
-                attraction_query = f"What are the 5 best attractions in {location}?"
-                attraction_message = Message(content=attraction_query, sender="User")
-                attraction_response = coordinator.process_message(attraction_message, "AttractionExpert")
-                
-                # 5. Compile comprehensive guide
-                guide_prompt = f"""Create a comprehensive travel guide for {location} on {date_str} using the following information:
-                
-                WEATHER:
-                {weather_response.content}
-                
-                HOTELS:
-                {hotel_response.content}
-                
-                RESTAURANTS:
-                {restaurant_response.content}
-                
-                ATTRACTIONS:
-                {attraction_response.content}
-                
-                Format the guide in a clear, organized way with sections for weather, accommodation, dining, and sightseeing.
-                Add a brief introduction and conclusion.
-                """
-                
-                guide_message = Message(content=guide_prompt, sender="User")
-                final_response = coordinator.process_message(guide_message, "Assistant")
-                
+                resolution = resolve_location_for_travel(location, location_resolver)
+                if resolution.clarification_message:
+                    print(resolution.clarification_message.replace("to continue.", "and try again."))
+                    print("-" * 50)
+                    continue
+                resolved_location = resolution.resolved_location
+                if not resolved_location:
+                    print("I could not resolve the destination. Please try again with more details.")
+                    print("-" * 50)
+                    continue
+
+                canonical_location = resolved_location.canonical_name
+                print("Collecting weather, hotels, restaurants, and attractions...")
+
+                def _event_callback(event_name, payload):
+                    if event_name == "location_resolved":
+                        print("Location resolved.")
+                    elif event_name.endswith("_ready"):
+                        print(f"{event_name.replace('_ready', '').capitalize()} ready.")
+                    elif event_name == "final_ready":
+                        print("All sections completed.")
+
+                sections = run_travel_pipeline(resolved_location, date_str, event_callback=_event_callback)
+                if not (sections.weather or sections.hotels or sections.restaurants or sections.attractions):
+                    print("Tool providers unavailable. Returning structured fallback.")
+                    print(build_structured_fallback_response(canonical_location, date_str, sections))
+                    print("-" * 50)
+                    continue
+
+                final_response = generate_travel_response_with_tools(
+                    coordinator,
+                    canonical_location,
+                    date_str,
+                    sections,
+                )
                 print(f"{final_response.sender}: {final_response.content}")
-            
-            except Exception as e:
-                import traceback
-                print(f"Error building travel guide: {str(e)}")
-                print(traceback.format_exc())
-                
-                # Fall back to general assistant
+            except Exception as exc:
+                logger.error("Error building travel guide: %s\n%s", exc, traceback.format_exc())
                 try:
-                    print(f"Processing message with {current_agent} instead...")
                     response = coordinator.process_message(user_message, current_agent)
                     print(f"{response.sender}: {response.content}")
-                except Exception as e:
-                    print(f"Error: {str(e)}")
+                except Exception as fallback_exc:
+                    print(f"Error: {fallback_exc}")
         else:
-            # Determine which agent to use based on content
-            target_agent = current_agent
-            weather_keywords = ["weather", "temperature", "forecast", "rain", "sunny", "climate", "humid", "cold", "hot"]
-            hotel_keywords = ["hotel", "motel", "accommodation", "stay", "room", "suite", "lodge", "resort"]
-            restaurant_keywords = ["restaurant", "food", "eat", "dining", "cuisine", "meal", "breakfast", "lunch", "dinner"]
-            attraction_keywords = ["attraction", "visit", "sightseeing", "tour", "museum", "landmark", "monument", "park", "gallery"]
-            
-            if current_agent == "Assistant":
-                if any(keyword in user_input.lower() for keyword in weather_keywords):
-                    target_agent = "WeatherExpert"
-                elif any(keyword in user_input.lower() for keyword in hotel_keywords):
-                    target_agent = "HotelExpert"
-                elif any(keyword in user_input.lower() for keyword in restaurant_keywords):
-                    target_agent = "RestaurantExpert"
-                elif any(keyword in user_input.lower() for keyword in attraction_keywords):
-                    target_agent = "AttractionExpert"
-                
-                if target_agent != "Assistant":
-                    print(f"Routing to {target_agent} based on query content...")
-            
-            # Process message with appropriate agent
+            target_agent = route_by_keywords(user_input, current_agent)
+            if target_agent != current_agent:
+                print(f"Routing to {target_agent} based on query content...")
             try:
-                print(f"Processing message with {target_agent}...")
                 response = coordinator.process_message(user_message, target_agent)
                 print(f"{response.sender}: {response.content}")
-            except Exception as e:
-                import traceback
-                print(f"Error: {str(e)}")
-                print(traceback.format_exc())
-        
+            except Exception as exc:
+                logger.error("Error processing message: %s\n%s", exc, traceback.format_exc())
+
         print("-" * 50)
 
+
 if __name__ == "__main__":
-    main() 
+    main()
