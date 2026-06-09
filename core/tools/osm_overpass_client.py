@@ -28,7 +28,7 @@ class OSMOverpassClient:
         else:
             parsed = None
         self.endpoints: Sequence[str] = endpoints or parsed or _DEFAULT_ENDPOINTS
-        self.timeout_seconds = timeout_seconds or float(os.getenv("OVERPASS_TIMEOUT_SECONDS", "12"))
+        self.timeout_seconds = timeout_seconds or float(os.getenv("OVERPASS_TIMEOUT_SECONDS", "21"))
 
     def search_combined(
         self,

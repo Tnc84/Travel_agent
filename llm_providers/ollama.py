@@ -20,7 +20,7 @@ class OllamaProvider(LLMProvider):
         super().__init__(model)
         self.base_url = (base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")).rstrip("/")
         self.request_timeout_seconds = int(os.getenv("OLLAMA_REQUEST_TIMEOUT_SECONDS", "180"))
-        self.max_tokens = int(os.getenv("OLLAMA_MAX_TOKENS", "300"))
+        self.max_tokens = int(os.getenv("OLLAMA_MAX_TOKENS", "700"))
         self._initialized = False
 
     @retry_on_error(max_retries=3, delay=1.0, exceptions=(requests.ConnectionError, requests.Timeout))
