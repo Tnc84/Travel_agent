@@ -20,10 +20,6 @@ class GraphRuntimeConfig:
     weather_cache_ttl_seconds: int
     place_cache_ttl_seconds: int
 
-    @property
-    def has_checkpoint(self) -> bool:
-        return bool(self.checkpoint_dsn)
-
 
 class GraphConfigError(RuntimeError):
     """Raised at startup when the LangGraph runtime config is invalid."""

@@ -17,8 +17,8 @@ def register_agent(name: str, keywords: Optional[List[str]] = None):
     """Class decorator that registers an agent in the global registry.
 
     Usage:
-        @register_agent(name="WeatherExpert", keywords=["weather", "forecast"])
-        class WeatherAgent(SpecializedAgent):
+        @register_agent(name="Assistant")
+        class GeneralAgent(SpecializedAgent):
             ...
 
     To add a new agent: create its class file and apply this decorator.

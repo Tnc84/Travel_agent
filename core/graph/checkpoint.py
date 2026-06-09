@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
-from typing import Iterator, Optional
+from typing import Iterator
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
@@ -45,15 +45,3 @@ def open_checkpointer(config: GraphRuntimeConfig) -> Iterator[BaseCheckpointSave
         "Starting LangGraph runtime with in-memory checkpointer (LANGGRAPH_ALLOW_NO_CHECKPOINT=1)"
     )
     yield InMemorySaver()
-
-
-def health_check_checkpoint(config: GraphRuntimeConfig) -> Optional[str]:
-    """Return None if the configured checkpoint store is reachable, or a reason string."""
-    if not config.checkpoint_dsn:
-        return None if config.allow_no_checkpoint else "checkpoint DSN missing"
-    try:
-        with PostgresSaver.from_conn_string(config.checkpoint_dsn) as saver:
-            saver.setup()
-        return None
-    except Exception as exc:
-        return f"{type(exc).__name__}: {exc}"

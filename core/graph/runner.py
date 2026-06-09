@@ -4,7 +4,6 @@ import logging
 import threading
 import time
 import uuid
-from contextlib import contextmanager
 from typing import Any, Dict, Iterator, Optional
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -26,8 +25,8 @@ logger = logging.getLogger(__name__)
 class TravelGraphRunner:
     """Holds the compiled graph and runtime resources for the lifetime of the process.
 
-    Use as a context manager (or the module-level `get_runner()` accessor) to ensure
-    the Postgres connection is opened/closed cleanly on shutdown.
+    Use as a context manager to ensure the Postgres connection is opened/closed
+    cleanly on shutdown.
     """
 
     def __init__(
@@ -244,10 +243,3 @@ def _section_error(section_key: str, errors: Dict[str, Any]) -> Optional[str]:
     if not err:
         return None
     return err.get("message") if isinstance(err, dict) else str(err)
-
-
-@contextmanager
-def open_runner(coordinator: Coordinator, location_resolver: LocationResolver) -> Iterator[TravelGraphRunner]:
-    runner = TravelGraphRunner(coordinator, location_resolver)
-    with runner:
-        yield runner

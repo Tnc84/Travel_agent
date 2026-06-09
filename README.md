@@ -8,7 +8,7 @@ A flexible and extensible multi-agent travel assistant built with Python.
 - Free travel data pipeline (OpenStreetMap Overpass + Open-Meteo, optional OpenTripMap fallback)
 - LangGraph-based travel runtime with parallel weather + POI branches and partial/degraded responses
 - Postgres checkpointing for durable, resumable graph state
-- Streaming support for web (`/ask/stream`) and progressive rendering in CLI
+- Streaming support for web (`/ask/stream`) with progressive section rendering
 - Flexible date parsing (RO/EN): `15 Aug`, `23 Iul`, `Jul 23`, `August 15`, `25-04`, `10-23`
 - Phone-aware ranking for venues (`contact:phone` / `phone` first)
 - Centralized provider/model selection in `core/llm/wiring.py` (`build_primary_provider`)
@@ -23,7 +23,7 @@ A flexible and extensible multi-agent travel assistant built with Python.
   - Postgres checkpointing when `LANGGRAPH_CHECKPOINT_DSN` is set.
   - In-memory degraded mode allowed only when `LANGGRAPH_ALLOW_NO_CHECKPOINT=1`.
   - Fail-fast startup when checkpoint is required (`LANGGRAPH_ALLOW_NO_CHECKPOINT=0`) and DSN is missing/unreachable.
-- Centralized provider selection and agent discovery keep CLI/web routing behavior consistent.
+- Centralized provider selection and agent discovery back the web travel flow.
 
 ## System architecture
 
@@ -32,19 +32,17 @@ High-level view of the repository: entrypoints, shared core services, the LangGr
 ```mermaid
 flowchart TB
   subgraph users["Users"]
-    UCLI["CLI user"]
     UWEB["Browser"]
   end
 
   subgraph entry["Entrypoints"]
-    MAIN["main.py"]
     RUNPY["run.py"]
     FLASK["ui/app.py Flask"]
   end
 
   subgraph shared["Shared core"]
     VAL["validation"]
-    IR["intent travel_match / keyword_route"]
+    IR["intent travel_match"]
     LRES["location.resolver"]
     LPROV["location.providers + cache"]
   end
@@ -86,10 +84,8 @@ flowchart TB
     HIST["history JSON logs"]
   end
 
-  UCLI --> MAIN
   UWEB --> RUNPY
   RUNPY --> FLASK
-  MAIN --> VAL
   FLASK --> VAL
   VAL --> IR
   IR -->|general chat| COORD
@@ -116,7 +112,6 @@ flowchart TB
   N6 --> COORD
   COORD --> AGENTS
   ABUILD --> COORD
-  AREG -.->|agent defs| IR
   PFACT --> PIMPL
   ABUILD --> PIMPL
   FLASK --> HIST
@@ -204,11 +199,6 @@ Note: do not use global `pip install` on Ubuntu system Python. Install packages 
 
 ## Usage
 
-Run CLI chatbot:
-```bash
-python3 main.py
-```
-
 Run web interface:
 ```bash
 python3 run.py
@@ -226,10 +216,9 @@ Then open `http://127.0.0.1:5000`.
 Numeric ambiguous dates like `06-12` are rejected by design to avoid silent misinterpretation.
 
 ## Project Structure
-- `main.py`: CLI entry point
 - `run.py`: web app launcher
 - `ui/`: web interface
-- `agents/`: specialized agents only
+- `agents/`: the `Assistant` agent used for synthesis/general chat
 - `llm_providers/`: LLM provider abstractions and implementations (Ollama, Hugging Face)
 - `core/`: LangGraph travel runtime, agent platform, intent, LLM wiring, validation, location stack
 - `core/tools/`: external free tool clients (Overpass, Open-Meteo, OpenTripMap)
@@ -239,11 +228,11 @@ Numeric ambiguous dates like `06-12` are rejected by design to avoid silent misi
 - `llm_providers/ollama.py`, `llm_providers/huggingface.py`: concrete provider implementations
 - `core/llm/wiring.py`: selects provider and model from environment with fallback (`build_primary_provider`)
 - `core/agent_platform/`: multi-agent orchestration (distinct from top-level package `agents/`)
-  - `core/agent_platform/registry.py`: `@register_agent` and keyword metadata
+  - `core/agent_platform/registry.py`: `@register_agent` metadata
   - `core/agent_platform/builder.py`: `build_agents` / `discover_agents` (import explicitly — avoids cycles with `agents/`)
   - `core/agent_platform/coordinator.py`: dispatch `process_message` to named agents
   - `core/agent_platform/base.py`: `Message` and `Agent` abstract base
-- `core/intent/`: travel regex vs keyword routing (`match_travel_intent`, `route_by_keywords`)
+- `core/intent/`: travel intent detection (`match_travel_intent`)
 - `core/date/parser.py`: normalizes flexible user dates to ISO (`normalize_user_date_to_iso`)
 - `core/validation.py`: user input length and emptiness checks
 - `core/support/`: small cross-cutting helpers (`clean_llm_response`, `retry_on_error`)
@@ -266,7 +255,7 @@ Numeric ambiguous dates like `06-12` are rejected by design to avoid silent misi
 ## Extending The System
 - Add a new agent: create the agent class, add its prompt, then decorate with `@register_agent` from `core.agent_platform` (see existing files under `agents/`)
 - Add a new provider: implement it in `llm_providers/` and wire it into `core/llm/wiring.py`
-- No changes are required in `main.py` or `ui/app.py` when adding a new registered agent
+- No changes are required in `ui/app.py` when adding a new registered agent
 
 ## Supported LLM Providers
 - **Ollama**: local server (default `http://localhost:11434`)

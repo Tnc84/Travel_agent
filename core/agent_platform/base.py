@@ -34,14 +34,3 @@ class Agent(ABC):
     @abstractmethod
     def initialize(self) -> None:
         """Initialize the agent with any necessary setup."""
-
-    @property
-    def message_history(self) -> List[Message]:
-        """Read-only view of the message history."""
-        return list(self._message_history)
-
-    def add_to_history(self, message: Message) -> None:
-        self._message_history.append(message)
-
-    def get_history(self) -> List[Message]:
-        return list(self._message_history)

@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict
 
 from core.agent_platform.base import Agent, Message
 
@@ -11,12 +11,6 @@ class Coordinator:
 
     def add_agent(self, agent: Agent) -> None:
         self.agents[agent.name] = agent
-
-    def remove_agent(self, agent_name: str) -> None:
-        self.agents.pop(agent_name, None)
-
-    def get_agent(self, agent_name: str) -> Optional[Agent]:
-        return self.agents.get(agent_name)
 
     def process_message(self, message: Message, target_agent: str) -> Message:
         if target_agent not in self.agents:
