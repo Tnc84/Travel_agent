@@ -11,6 +11,7 @@ from core.agent_platform.builder import build_agents
 from core.graph.runner import TravelGraphRunner
 from core.location import LocationResolver
 from core.llm import build_primary_provider
+from core.persistence import load_persistence_config, run_migrations
 from ui.context import AppContext
 
 
@@ -57,6 +58,12 @@ def _start_runner(coordinator: Coordinator, logger: logging.Logger) -> TravelGra
 
 def build_app_context() -> AppContext:
     logger = configure_logging()
+    load_dotenv()
+    if load_persistence_config().enabled:
+        try:
+            run_migrations()
+        except Exception as exc:
+            logger.warning("App database migration skipped or failed: %s", exc)
     coordinator = _build_coordinator(logger)
     runner = _start_runner(coordinator, logger)
     return AppContext(coordinator=coordinator, runner=runner, logger=logger)

@@ -12,12 +12,10 @@ from core.agent_platform import Coordinator
 from core.graph.checkpoint import open_checkpointer
 from core.graph.config import GraphRuntimeConfig, load_graph_config, validate_graph_config
 from core.graph.graph_builder import build_travel_graph
-from core.graph.nodes.runtime import NodeRuntime, TTLCache, set_runtime
+from core.graph.nodes.runtime import NodeRuntime, set_runtime
 from core.graph.state import GraphStatus, build_initial_state
 from core.location import LocationResolver
-from core.tools.openmeteo_client import OpenMeteoClient
-from core.tools.opentripmap_client import OpenTripMapClient
-from core.tools.osm_overpass_client import OSMOverpassClient
+from core.services.travel import build_travel_services
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +57,7 @@ class TravelGraphRunner:
         self._runtime = NodeRuntime(
             config=self._config,
             coordinator=self._coordinator,
-            location_resolver=self._location_resolver,
-            overpass=OSMOverpassClient(),
-            openmeteo=OpenMeteoClient(),
-            opentripmap=OpenTripMapClient(),
-            weather_cache=TTLCache(self._config.weather_cache_ttl_seconds),
-            place_cache=TTLCache(self._config.place_cache_ttl_seconds),
+            services=build_travel_services(self._config, self._location_resolver),
         )
         return self
 

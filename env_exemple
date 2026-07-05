@@ -14,3 +14,7 @@ LANGGRAPH_THREAD_TTL_SECONDS=86400
 LLM_PROVIDER=ollama
 OLLAMA_MODEL=
 HUGGINGFACE_MODEL=
+
+# Application database (saved trips, users)
+# APP_DATABASE_DSN=postgresql://travel:travel@localhost:5432/travel_app
+DEFAULT_USER_ID=anonymous

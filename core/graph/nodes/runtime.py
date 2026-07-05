@@ -9,31 +9,12 @@ from typing import Any, Callable, Dict, Optional
 
 from core.agent_platform import Coordinator
 from core.graph.config import GraphRuntimeConfig
-from core.location import LocationResolver
-from core.tools.openmeteo_client import OpenMeteoClient
-from core.tools.opentripmap_client import OpenTripMapClient
-from core.tools.osm_overpass_client import OSMOverpassClient
+from core.services.travel import TTLCache, TravelServices, build_travel_services
 
 logger = logging.getLogger(__name__)
 
-
-class TTLCache:
-    def __init__(self, ttl_seconds: int):
-        self.ttl_seconds = ttl_seconds
-        self._store: Dict[str, tuple[float, Any]] = {}
-
-    def get(self, key: str):
-        value = self._store.get(key)
-        if not value:
-            return None
-        expires_at, payload = value
-        if time.time() > expires_at:
-            self._store.pop(key, None)
-            return None
-        return payload
-
-    def set(self, key: str, payload: Any) -> None:
-        self._store[key] = (time.time() + self.ttl_seconds, payload)
+# Re-export for backward compatibility with any external imports.
+__all__ = ["NodeRuntime", "TTLCache", "get_runtime", "set_runtime", "timed_node"]
 
 
 @dataclass
@@ -44,12 +25,7 @@ class NodeRuntime:
     """
     config: GraphRuntimeConfig
     coordinator: Coordinator
-    location_resolver: LocationResolver
-    overpass: OSMOverpassClient
-    openmeteo: OpenMeteoClient
-    opentripmap: OpenTripMapClient
-    weather_cache: TTLCache
-    place_cache: TTLCache
+    services: TravelServices
 
 
 _RUNTIME: ContextVar[Optional[NodeRuntime]] = ContextVar("travel_graph_runtime", default=None)

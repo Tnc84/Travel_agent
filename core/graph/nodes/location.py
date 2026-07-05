@@ -17,29 +17,29 @@ def resolve_location_node(state: Dict[str, Any]) -> Dict[str, Any]:
             clarification_message, status, errors
     """
     raw_location = (state.get("raw_location") or "").strip()
-    if not raw_location:
+    runtime = get_runtime()
+    result = runtime.services.location.resolve(raw_location)
+    data = result.data
+
+    if data.needs_clarification and data.resolved is None and not raw_location:
         return {
             "status": GraphStatus.NEEDS_CLARIFICATION.value,
-            "clarification_message": "Please provide a destination.",
+            "clarification_message": data.clarification,
         }
 
-    runtime = get_runtime()
-    resolved = runtime.location_resolver.resolve(raw_location)
-    clarification = runtime.location_resolver.clarification_message(raw_location, resolved)
-
-    if clarification is None:
+    if not data.needs_clarification and data.resolved is not None:
         return {
-            "resolved_location": resolved.to_dict(),
-            "canonical_location": resolved.canonical_name,
-            "location_confidence": resolved.confidence,
+            "resolved_location": data.resolved.to_dict(),
+            "canonical_location": data.resolved.canonical_name,
+            "location_confidence": data.resolved.confidence,
             "status": GraphStatus.LOCATION_RESOLVED.value,
         }
 
     patch: Dict[str, Any] = {
         "status": GraphStatus.NEEDS_CLARIFICATION.value,
-        "clarification_message": clarification,
+        "clarification_message": data.clarification,
     }
-    if resolved is None:
+    if data.resolved is None:
         patch["errors"] = {
             "resolve_location": make_error(
                 "resolve_location", NodeErrorKind.PROVIDER_UNAVAILABLE,
@@ -47,9 +47,9 @@ def resolve_location_node(state: Dict[str, Any]) -> Dict[str, Any]:
             )
         }
     else:
-        patch["resolved_location"] = resolved.to_dict()
-        patch["canonical_location"] = resolved.canonical_name
-        patch["location_confidence"] = resolved.confidence
+        patch["resolved_location"] = data.resolved.to_dict()
+        patch["canonical_location"] = data.resolved.canonical_name
+        patch["location_confidence"] = data.resolved.confidence
     return patch
 
 

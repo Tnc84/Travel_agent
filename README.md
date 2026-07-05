@@ -257,6 +257,35 @@ Numeric ambiguous dates like `06-12` are rejected by design to avoid silent misi
 - Add a new provider: implement it in `llm_providers/` and wire it into `core/llm/wiring.py`
 - No changes are required in `ui/app.py` when adding a new registered agent
 
+## MCP Server (Cursor / external agents)
+
+Travel tool logic lives in `core/services/travel/` (shared by LangGraph nodes and MCP).
+
+Run the MCP server locally:
+
+```bash
+python -m travel_mcp
+```
+
+**Tools:** `resolve_location`, `get_weather`, `search_poi`, `save_trip`, `list_user_trips`, `get_trip`, `add_trip_favorite`, `remove_trip_favorite`
+
+**Resources:** `travel://trips/{user_id}`, `travel://trip/{trip_id}` (requires `APP_DATABASE_DSN`)
+
+Cursor config: [`.cursor/mcp.json`](.cursor/mcp.json) — reload MCP after changes.
+
+## Application database (saved trips)
+
+Set `APP_DATABASE_DSN` in `.env` (can share the same Postgres instance as LangGraph checkpoint, different schema `app.*`).
+
+REST endpoints (header `X-User-Id` or query `user_id`):
+
+- `GET /trips` — list saved trips
+- `GET /trips/<id>` — trip details
+- `POST /trips` — save a trip (JSON body)
+- `POST/DELETE /trips/<id>/favorite` — favorites
+
+When `APP_DATABASE_DSN` is unset, travel guides still persist to `history/*.json`.
+
 ## Supported LLM Providers
 - **Ollama**: local server (default `http://localhost:11434`)
 - **Hugging Face**: API-based provider (works with or without key, rate-limited without key)
